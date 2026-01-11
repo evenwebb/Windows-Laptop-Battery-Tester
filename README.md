@@ -42,8 +42,15 @@ A portable Python application that monitors laptop battery life, logs data perio
 3. Run `battery_tester.exe`
 
 ### Option 2: Run from Source
-1. Install Python 3.8+
-2. Install dependencies:
+1. Install Python 3.8+ from [python.org](https://www.python.org/)
+2. Install dependencies using one of these methods:
+
+   **Windows (recommended):**
+   ```bash
+   setup.bat
+   ```
+   
+   **Or manually:**
    ```bash
    pip install -r requirements.txt
    ```

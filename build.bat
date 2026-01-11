@@ -28,6 +28,8 @@ if errorlevel 1 (
     echo PyInstaller not found. Installing...
     pip install pyinstaller
 )
+echo Installing/updating required packages...
+pip install -r requirements.txt --quiet
 echo Done.
 echo.
 

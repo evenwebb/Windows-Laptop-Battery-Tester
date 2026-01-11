@@ -95,15 +95,43 @@ To distribute the application:
 
 ### PyInstaller Fails
 
-- Ensure all dependencies are installed
+- Ensure all dependencies are installed: `pip install -r requirements.txt`
 - Try running as administrator
 - Check that Python is in PATH
+- Ensure PyInstaller is installed: `pip install pyinstaller`
 
 ### Executable Doesn't Run
 
-- Check Windows Defender/antivirus isn't blocking it
-- Try running from command prompt to see error messages
-- Ensure all required DLLs are included (PyInstaller should handle this)
+#### ModuleNotFoundError (psutil, PIL, wmi, etc.)
+
+If you get `ModuleNotFoundError: No module named 'X'`:
+1. **For running Python script directly**: Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   Or run `setup.bat` to install all dependencies automatically.
+
+2. **For compiled EXE**: The build.spec file should automatically collect all modules. If you still get errors:
+   - Rebuild the executable: `build.bat`
+   - Ensure all dependencies are installed before building
+   - Check that PyInstaller version is >= 5.0
+
+#### Common Import Errors
+
+- **psutil**: Already handled in build.spec with `hooks.collect_all('psutil')`
+- **PIL/Pillow**: Fonts and image libraries are collected automatically
+- **wmi**: Windows-only, gracefully handled with try/except in code
+- **pywin32**: Windows API modules are included in hiddenimports
+- **matplotlib**: Backend (agg) is explicitly included
+
+#### Other Runtime Issues
+
+- **Windows Defender/Antivirus**: May flag the executable. Add exception if needed
+- **Missing DLLs**: PyInstaller should bundle all required DLLs. If missing:
+  - Rebuild with `--clean` flag: `pyinstaller --clean build.spec`
+  - Check Windows Event Viewer for specific DLL errors
+- **Font loading errors**: PIL will fall back to default font if system fonts unavailable
+- **WMI access denied**: Run as administrator for full functionality
 
 ### Large Executable Size
 

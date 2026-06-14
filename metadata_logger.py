@@ -4,8 +4,12 @@ Collects and logs test environment data
 """
 import platform
 import psutil
-import sys
 from datetime import datetime
+
+try:
+    from power_manager import PowerManager
+except ImportError:
+    PowerManager = None
 
 
 def get_os_info():
@@ -43,7 +47,7 @@ def check_wifi_status():
         # Check if any network interface is up
         interfaces = psutil.net_if_stats()
         for interface, stats in interfaces.items():
-            if stats.isup and 'Wi-Fi' in interface or 'Wireless' in interface:
+            if stats.isup and ('Wi-Fi' in interface or 'Wireless' in interface):
                 return True
         return False
     except Exception as e:
@@ -56,28 +60,27 @@ def collect_test_metadata(original_power_plan=None, active_power_plan=None, scre
     Collect all test environment metadata
     Returns dict with test metadata
     """
-    # Import here to avoid circular dependency
-    try:
-        from power_manager import PowerManager
-        pm = PowerManager()
-        if screen_brightness is None:
-            screen_brightness = pm.get_screen_brightness()
-    except ImportError:
-        pm = None
-    
+    pm = PowerManager() if PowerManager is not None else None
+    if pm is not None and screen_brightness is None:
+        screen_brightness = pm.get_screen_brightness()
+
+    orig_plan = original_power_plan
+    if orig_plan is None and pm is not None:
+        orig_plan = pm.get_power_plan_name()
+
     metadata = {
         'test_start_time': datetime.now().isoformat(),
         'os_version': f"{platform.system()} {platform.release()}",
         'os_build': platform.version().split('.')[-1] if '.' in platform.version() else platform.version(),
-        'original_power_plan': original_power_plan or pm.get_power_plan_name(),
+        'original_power_plan': orig_plan,
         'active_power_plan': active_power_plan or 'High Performance',
-        'screen_brightness': screen_brightness or pm.get_screen_brightness(),
+        'screen_brightness': screen_brightness or (pm.get_screen_brightness() if pm is not None else None),
         'wifi_enabled': check_wifi_status(),
-        'script_version': '1.0.0',  # TODO: Get from version file or __init__
+        'script_version': '1.0.0',
         'notes': notes or '',
         'top_processes': get_top_processes(5),
     }
-    
+
     return metadata
 
 

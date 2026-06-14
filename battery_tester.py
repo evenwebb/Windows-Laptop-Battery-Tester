@@ -2,13 +2,14 @@
 Main Battery Tester Script
 Entry point for battery testing application
 """
-import sys
 import argparse
-import signal
-import time
 import logging
 import os
-from datetime import datetime, timedelta
+import signal
+import sys
+import time
+import traceback
+from datetime import datetime
 from hardware_info import get_hardware_info, get_battery_info, generate_laptop_id
 from battery_monitor import BatteryMonitor
 from battery_health import get_battery_health
@@ -409,9 +410,7 @@ class BatteryTester:
         
         finally:
             # Finalize test
-            final_status = low_battery_handler.determine_test_status(
-                last_battery_percent, elapsed
-            )
+            final_status = low_battery_handler.determine_test_status(last_battery_percent)
             
             self.data_logger.finalize_test_run(laptop_id, final_status, last_battery_percent)
             
@@ -452,7 +451,8 @@ class BatteryTester:
             report_path = self.report_generator.generate_comparison_report()
             print(f"✓ Comparison report generated: {report_path}")
             if auto_open:
-                self.report_generator.generate_report_and_open(None, None, report_path, auto_open=True)
+                if auto_open:
+                    self.report_generator._open_report(report_path)
         except Exception as e:
             print(f"Error generating comparison report: {e}")
     
@@ -556,7 +556,6 @@ class BatteryTester:
             raise
         except Exception as e:
             print(f"\n❌ Error: {e}")
-            import traceback
             traceback.print_exc()
             raise
     
@@ -601,7 +600,6 @@ class BatteryTester:
             raise
         except Exception as e:
             print(f"\n❌ Error: {e}")
-            import traceback
             traceback.print_exc()
             raise
     
@@ -650,7 +648,6 @@ class BatteryTester:
             raise
         except Exception as e:
             print(f"\n❌ Error: {e}")
-            import traceback
             traceback.print_exc()
             raise
     
@@ -672,7 +669,6 @@ class BatteryTester:
             raise
         except Exception as e:
             print(f"\n❌ Error: {e}")
-            import traceback
             traceback.print_exc()
             raise
     
@@ -800,17 +796,8 @@ Examples:
             log_debug(f"Error executing command: {e}", 'error')
             log_debug("Exception traceback:", 'exception')
             print(f"\n❌ Error: {e}")
-            import traceback
             traceback.print_exc()
             return
-        
-        # Store configuration
-        if args.notes:
-            self.test_notes = args.notes
-        
-        self.low_battery_threshold = args.low_battery
-        self.backup_interval = args.backup_interval
-        self.skip_validation = args.skip_validation
         
         # Identify laptop
         laptop_id = self.identify_laptop()
@@ -881,7 +868,6 @@ Examples:
             log_debug(f"Error during test: {e}", 'error')
             log_debug("Exception traceback:", 'exception')
             print(f"\n❌ Error during test: {e}")
-            import traceback
             traceback.print_exc()
 
 
@@ -890,13 +876,12 @@ def pause_before_exit():
     if sys.platform == 'win32':
         try:
             input("\n\nPress Enter to exit...")
-        except:
-            import time
-            time.sleep(5)  # Fallback: wait 5 seconds
+        except (KeyboardInterrupt, EOFError):
+            time.sleep(5)
     else:
         try:
             input("\n\nPress Enter to exit...")
-        except:
+        except (KeyboardInterrupt, EOFError):
             pass
 
 
@@ -1141,7 +1126,7 @@ def main():
                 elif choice == 'compare':
                     log_debug("User selected: Compare All Laptops", 'info')
                     try:
-                        tester.handle_compare_command()
+                        tester.handle_compare_command(sort_by='runtime')
                     except Exception as e:
                         log_debug(f"Error comparing laptops: {e}", 'error')
                         log_debug("Exception traceback:", 'exception')

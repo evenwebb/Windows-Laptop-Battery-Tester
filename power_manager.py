@@ -4,14 +4,6 @@ Manages power settings, prevents sleep, and sets power plan
 """
 import platform
 import subprocess
-import sys
-
-try:
-    import win32api
-    import win32con
-    WIN32_AVAILABLE = True
-except ImportError:
-    WIN32_AVAILABLE = False
 
 
 class PowerManager:
@@ -124,9 +116,9 @@ class PowerManager:
                         if line.strip().startswith('Power Scheme GUID:'):
                             high_perf_guid = line.split(':')[1].strip().split()[0]
                             break
-                except:
+                except Exception:
                     pass
-            
+
             # Set High Performance plan
             if high_perf_guid:
                 subprocess.run(
@@ -219,17 +211,15 @@ class PowerManager:
         """Get current screen brightness percentage"""
         if not self.is_windows:
             return None
-        
+
         try:
-            # Try to get brightness via WMI
             import wmi
             c = wmi.WMI(namespace='wmi')
             brightness = c.WmiMonitorBrightness()[0].CurrentBrightness
             return brightness
-        except Exception:
+        except (ImportError, Exception):
             pass
-        
-        # Fallback: return None (can't reliably get brightness without WMI)
+
         return None
 
 

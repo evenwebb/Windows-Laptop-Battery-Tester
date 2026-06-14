@@ -57,18 +57,24 @@ class TestResumer:
         # Mark as resumed
         self.data_logger.mark_test_resumed(laptop_id)
         
+        start_time = None
+        try:
+            start_time = datetime.fromisoformat(test_run['test_start_time'])
+        except (ValueError, TypeError):
+            start_time = datetime.now()
+
         # Get last entry info
         if test_run['entries']:
             last_entry = test_run['entries'][-1]
             return {
-                'start_time': datetime.fromisoformat(test_run['test_start_time']),
+                'start_time': start_time,
                 'last_battery_percent': last_entry['battery_percent'],
                 'last_elapsed_seconds': last_entry['elapsed_seconds'],
                 'run_id': test_run['run_id'],
             }
-        
+
         return {
-            'start_time': datetime.fromisoformat(test_run['test_start_time']),
+            'start_time': start_time,
             'last_battery_percent': 100,
             'last_elapsed_seconds': 0,
             'run_id': test_run['run_id'],

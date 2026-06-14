@@ -193,9 +193,9 @@ class ReportGenerator:
             # Draw discharge curve
             entries = test_run['entries']
             if len(entries) > 1:
-                max_time = max(e['elapsed_seconds'] for e in entries)
+                max_time = max(e['elapsed_seconds'] for e in entries) or 1
                 max_percent = 100
-                
+
                 points = []
                 for entry in entries:
                     x = chart_x + int((entry['elapsed_seconds'] / max_time) * chart_width)

@@ -2,7 +2,9 @@
 Results Viewer Module
 Display test results with sorting and comparison
 """
-from datetime import datetime, timedelta
+from datetime import datetime
+
+BATTERY_MILESTONES = [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]
 
 try:
     from data_logger import DataLogger
@@ -43,7 +45,7 @@ class ResultsViewer:
         
         # Find percentage milestones
         milestones = {}
-        for target in [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]:
+        for target in BATTERY_MILESTONES:
             for entry in entries:
                 if entry['battery_percent'] <= target:
                     milestones[target] = {

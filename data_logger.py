@@ -10,13 +10,13 @@ from backup_manager import BackupManager
 
 class DataLogger:
     """Handle data persistence for battery tests"""
-    
+
     def __init__(self, data_file='battery_test_data.json'):
         self.data_file = data_file
         self.backup_manager = BackupManager(data_file)
         self.data = self._load_data()
-        self.last_log_time = None
-        self.last_log_percentage = None
+        self._last_log_time: dict = {}
+        self._last_log_percentage: dict = {}
     
     def _load_data(self):
         """Load data from JSON file or create new structure"""
@@ -50,22 +50,13 @@ class DataLogger:
     def _save_data(self):
         """Save data to JSON file atomically"""
         try:
-            # Write to temporary file first
             temp_file = self.data_file + '.tmp'
             with open(temp_file, 'w', encoding='utf-8') as f:
                 json.dump(self.data, f, indent=2, ensure_ascii=False)
-            
-            # Atomic rename
-            if os.path.exists(self.data_file):
-                os.replace(temp_file, self.data_file)
-            else:
-                os.rename(temp_file, self.data_file)
-            
+            os.replace(temp_file, self.data_file)
             return True
         except Exception as e:
             print(f"Error saving data: {e}")
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
             return False
     
     def initialize_laptop(self, laptop_id, hardware_info, battery_info):
@@ -132,43 +123,34 @@ class DataLogger:
             return False
         
         # Check if we should log (every 1 minute OR every 10% drop)
+        last_time = self._last_log_time.get(laptop_id)
+        last_pct = self._last_log_percentage.get(laptop_id)
         should_log = False
-        
+
         # Time-based trigger (every 1 minute)
-        if self.last_log_time is None:
+        if last_time is None:
             should_log = True
-        else:
-            time_since_last = elapsed_seconds - self.last_log_time
-            if time_since_last >= 60:
-                should_log = True
-        
+        elif elapsed_seconds - last_time >= 60:
+            should_log = True
+
         # Percentage-based trigger (every 10% drop)
-        if self.last_log_percentage is not None:
-            current_10pct = int(battery_percent / 10)
-            last_10pct = int(self.last_log_percentage / 10)
-            if current_10pct < last_10pct:
-                should_log = True
-        
+        if last_pct is not None and int(battery_percent / 10) < int(last_pct / 10):
+            should_log = True
+
         if should_log:
             entry = {
                 'timestamp': datetime.now().isoformat(),
                 'battery_percent': battery_percent,
                 'elapsed_seconds': elapsed_seconds,
-                'charging': charging
+                'charging': charging,
             }
-            
             test_run['entries'].append(entry)
             test_run['total_runtime_seconds'] = elapsed_seconds
-            
-            self.last_log_time = elapsed_seconds
-            self.last_log_percentage = battery_percent
-            
-            # Note: Periodic backup is handled by main script with configurable interval
-            # This allows CLI to control backup frequency
-            
+            self._last_log_time[laptop_id] = elapsed_seconds
+            self._last_log_percentage[laptop_id] = battery_percent
             self._save_data()
             return True
-        
+
         return False
     
     def add_power_event(self, laptop_id, event_type, ac_connected, battery_percent=None):
@@ -209,17 +191,24 @@ class DataLogger:
         test_run = self.get_current_test_run(laptop_id)
         if not test_run:
             return
-        
+
         test_run['test_end_time'] = datetime.now().isoformat()
         test_run['status'] = status
-        
+
         if final_battery_percent is not None:
-            # Add final entry if not already logged
             last_entry = test_run['entries'][-1] if test_run['entries'] else None
             if not last_entry or last_entry['battery_percent'] != final_battery_percent:
-                self.add_entry(laptop_id, final_battery_percent, test_run['total_runtime_seconds'], False)
-        
-        # Create final backup
+                elapsed = test_run['total_runtime_seconds']
+                test_run['entries'].append({
+                    'timestamp': datetime.now().isoformat(),
+                    'battery_percent': final_battery_percent,
+                    'elapsed_seconds': elapsed,
+                    'charging': False,
+                })
+                test_run['total_runtime_seconds'] = elapsed
+                self._last_log_time[laptop_id] = elapsed
+                self._last_log_percentage[laptop_id] = final_battery_percent
+
         self.backup_manager.create_backup()
         self._save_data()
     

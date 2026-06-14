@@ -4,14 +4,9 @@ Handles periodic backups and recovery
 """
 import json
 import os
+import re
 import shutil
 from datetime import datetime
-
-try:
-    from pathlib import Path
-except ImportError:
-    # Python 2 compatibility (unlikely but safe)
-    Path = None
 
 
 class BackupManager:
@@ -55,10 +50,13 @@ class BackupManager:
             for filename in os.listdir(self.backup_dir):
                 if filename.startswith('battery_test_data_backup_') and filename.endswith('.json'):
                     filepath = os.path.join(self.backup_dir, filename)
-                    backups.append((os.path.getmtime(filepath), filepath))
-            
-            # Sort by modification time (newest first)
-            backups.sort(reverse=True)
+                    # Extract timestamp from filename for reliable sort
+                    ts_match = re.search(r'(\d{8}_\d{6})', filename)
+                    ts = ts_match.group(1) if ts_match else ''
+                    backups.append((ts, filepath))
+
+            # Sort by timestamp in filename (newest first)
+            backups.sort(key=lambda x: x[0], reverse=True)
             
             # Remove old backups
             for _, filepath in backups[self.keep_backups:]:
@@ -102,13 +100,14 @@ class BackupManager:
             for filename in os.listdir(self.backup_dir):
                 if filename.startswith('battery_test_data_backup_') and filename.endswith('.json'):
                     filepath = os.path.join(self.backup_dir, filename)
-                    backups.append((os.path.getmtime(filepath), filepath))
-            
+                    ts_match = re.search(r'(\d{8}_\d{6})', filename)
+                    ts = ts_match.group(1) if ts_match else ''
+                    backups.append((ts, filepath))
+
             if not backups:
                 return False, "No backups found"
-            
-            # Sort by modification time (newest first)
-            backups.sort(reverse=True)
+
+            backups.sort(key=lambda x: x[0], reverse=True)
             
             # Try each backup until we find a valid one
             for _, backup_path in backups:

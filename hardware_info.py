@@ -2,16 +2,18 @@
 Hardware Detection Module
 Collects hardware information and generates unique laptop ID
 """
+import logging
 import platform
 import psutil
-import sys
+
+logger = logging.getLogger(__name__)
 
 try:
     import wmi
     WMI_AVAILABLE = True
 except ImportError:
     WMI_AVAILABLE = False
-    print("Warning: wmi module not available. Some hardware details may be missing.")
+    logging.debug("wmi module not available. Some hardware details may be missing.")
 
 
 def get_hardware_info():
@@ -24,7 +26,7 @@ def get_hardware_info():
         'cpu_cores': psutil.cpu_count(logical=False),
         'cpu_logical_cores': psutil.cpu_count(logical=True),
         'ram_gb': round(psutil.virtual_memory().total / (1024**3), 2),
-        'system_model': platform.system(),
+        'system_model': None,
         'system_version': platform.version(),
         'system_serial': None,
         'manufacturer': None,
@@ -82,7 +84,7 @@ def get_battery_info():
         battery_info = {
             'design_capacity_mwh': battery.DesignCapacity if battery.DesignCapacity else None,
             'full_charge_capacity_mwh': battery.FullChargeCapacity if battery.FullChargeCapacity else None,
-            'cycles': battery.CycleCount if hasattr(battery, 'CycleCount') and battery.CycleCount else None,
+            'cycles': battery.CycleCount if hasattr(battery, 'CycleCount') and battery.CycleCount is not None else None,
         }
         
         # Calculate health percentage

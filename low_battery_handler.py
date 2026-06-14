@@ -39,7 +39,7 @@ class LowBatteryHandler:
         
         return False, None
     
-    def determine_test_status(self, last_battery_percent, last_entry_time):
+    def determine_test_status(self, last_battery_percent):
         """
         Determine test status based on final state
         Returns status string: "completed", "low_battery_shutdown", "hard_shutdown"
@@ -72,5 +72,5 @@ if __name__ == '__main__':
         if is_low:
             print(f"Event: {event}")
     
-    print(f"\nTest Status: {handler.determine_test_status(0, None)}")
+    print(f"\nTest Status: {handler.determine_test_status(0)}")
     print(f"\nLow Battery Events: {len(handler.get_low_battery_events())}")

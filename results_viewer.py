@@ -192,8 +192,57 @@ class ResultsViewer:
         if not current_laptop_id:
             print("No current laptop set.")
             return
-        
         self.display_laptop_results(current_laptop_id, current_laptop_id)
+
+    def export_csv(self, laptop_id, run_id=None, output_path=None):
+        """Export test run entries to CSV. Returns output path."""
+        import csv
+        if laptop_id not in self.data_logger.data.get('laptops', {}):
+            print(f"Laptop {laptop_id} not found.")
+            return None
+
+        laptop = self.data_logger.data['laptops'][laptop_id]
+        test_runs = laptop['test_runs']
+        if not test_runs:
+            print("No test runs found.")
+            return None
+
+        # Select the specific run or the last completed/in-progress
+        run = None
+        if run_id:
+            for tr in test_runs:
+                if tr['run_id'] == run_id:
+                    run = tr
+                    break
+        if not run:
+            run = test_runs[-1]
+
+        entries = run.get('entries', [])
+        if not entries:
+            print("No log entries in this test run.")
+            return None
+
+        if output_path is None:
+            run_tag = run.get('run_id', 'export')
+            output_path = f"battery_test_{laptop_id}_{run_tag}.csv"
+
+        with open(output_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['timestamp', 'battery_percent', 'elapsed_seconds',
+                             'elapsed_hours', 'charging', 'run_id', 'laptop_id'])
+            for entry in entries:
+                writer.writerow([
+                    entry.get('timestamp', ''),
+                    entry.get('battery_percent', ''),
+                    entry.get('elapsed_seconds', ''),
+                    round(entry.get('elapsed_seconds', 0) / 3600, 4),
+                    entry.get('charging', False),
+                    run.get('run_id', ''),
+                    laptop_id,
+                ])
+
+        print(f"✓ CSV exported to: {output_path} ({len(entries)} entries)")
+        return output_path
 
 
 if __name__ == '__main__':

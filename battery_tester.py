@@ -232,11 +232,196 @@ class BatteryTester:
             except (KeyboardInterrupt, EOFError):
                 return False
     
-    def start_test(self, laptop_id, resume_data=None):
+    def start_test(self, laptop_id, resume_data=None, auto_start=False):
         """Start battery test"""
         log_debug(f"Starting battery test for laptop: {laptop_id}", 'info')
         if resume_data:
             log_debug(f"Resuming test with data: {resume_data}", 'info')
+
+        W = 70
+
+        print("\n" + "=" * W)
+        print("  BATTERY TEST SETUP")
+        print("=" * W)
+        print("  Setting power plan to High Performance...", end=' ')
+        success, orig_guid, orig_name = self.power_manager.set_high_performance_plan()
+        print("OK" if success else "skipped")
+        print("  Preventing sleep/hibernate...", end=' ')
+        self.power_manager.prevent_sleep()
+        print("OK")
+
+        metadata = collect_test_metadata(original_power_plan=orig_name, active_power_plan='High Performance', notes=self.test_notes)
+        battery_info = get_battery_health()
+
+        run_id = None
+        if resume_data:
+            run_id = resume_data['run_id']
+            test_run = self.data_logger.get_current_test_run(laptop_id)
+            if test_run:
+                test_run['resumed'] = True
+                self.test_start_time = resume_data['start_time']
+                print(f"\n  Resuming test run: {run_id}")
+        else:
+            run_id = self.data_logger.create_test_run(laptop_id, metadata, battery_info)
+            self.test_start_time = datetime.now()
+            print(f"\n  Test run: {run_id}")
+
+        if auto_start and not resume_data:
+            print("\n" + "=" * W)
+            print("  AUTO-START MODE")
+            print("=" * W)
+            print("  Waiting for AC power to be disconnected...")
+            print("  (Plug in now, then disconnect to begin automatically)\n")
+            self.battery_monitor.wait_for_battery_power()
+            self.test_start_time = datetime.now()
+            status = self.battery_monitor.get_battery_status()
+            print(f"\n  ✓ Battery power detected at {self.test_start_time.strftime('%H:%M:%S')}")
+            print(f"  Starting battery: {status['percentage']:.1f}%\n")
+        else:
+            print("\n  Waiting for AC power to be disconnected...")
+            if not self.battery_monitor.wait_for_battery_power():
+                return False
+
+        status = self.battery_monitor.get_battery_status()
+        self.data_logger.add_power_event(laptop_id, 'test_started', False, status['percentage'])
+
+        charging_monitor = ChargingMonitor(grace_period=30)
+        low_battery_handler = LowBatteryHandler(low_battery_threshold=self.low_battery_threshold)
+        discharge = DischargeAnalyzer()
+        power_events = PowerEventLogger()
+        self.data_logger.backup_manager.keep_backups = 5
+
+        max_duration = None
+        if self.selected_preset and self.selected_preset != 'full_discharge':
+            preset = PRESETS[self.selected_preset]
+            max_duration = preset.get('max_duration_minutes')
+
+        total_pause_time = 0
+        pause_start_time = None
+
+        preset_label = f" [{PRESETS[self.selected_preset]['name']}]" if self.selected_preset else ""
+        print()
+        print("=" * W)
+        print(f"  TEST IN PROGRESS{preset_label}")
+        print("=" * W)
+        print(f"  {'Runtime':>8s}  {'Batt':>6s}  {'Rate':>7s}  {'Est':>10s}  {'Status'}")
+        print("-" * W)
+
+        self.running = True
+        last_battery_percent = None
+
+        try:
+            while self.running:
+                status = self.battery_monitor.get_battery_status()
+                battery_percent = status['percentage']
+                if battery_percent is None:
+                    time.sleep(5)
+                    continue
+
+                charge_state = charging_monitor.update()
+
+                if charge_state == 'paused' and pause_start_time is None:
+                    pause_start_time = datetime.now()
+                    print(f"\n  ⏸  Charger connected. Test paused. Disconnect to resume.")
+                elif charge_state == 'resumed':
+                    if pause_start_time is not None:
+                        pd = (datetime.now() - pause_start_time).total_seconds()
+                        total_pause_time += pd
+                        pause_start_time = None
+                        print(f"\n  ▶  Resumed (+{pd/60:.1f}min pause)")
+
+                if resume_data:
+                    base_elapsed = resume_data['last_elapsed_seconds']
+                    current_time = (datetime.now() - resume_data['start_time']).total_seconds()
+                else:
+                    base_elapsed = 0
+                    current_time = (datetime.now() - self.test_start_time).total_seconds()
+
+                elapsed = base_elapsed + current_time - total_pause_time
+                if pause_start_time is not None:
+                    elapsed -= (datetime.now() - pause_start_time).total_seconds()
+
+                sys_event = power_events.poll()
+                if sys_event:
+                    self.data_logger.add_power_event(laptop_id, 'system_' + sys_event['event'], sys_event['event'] == 'ac_connected', sys_event.get('battery_percent'))
+
+                if not charging_monitor.is_paused:
+                    rate, eta_mins = discharge.update(battery_percent, elapsed)
+                else:
+                    rate, eta_mins = 0, 0
+
+                is_low, low_event = low_battery_handler.check_low_battery(battery_percent)
+                if is_low and low_event:
+                    self.data_logger.add_low_battery_event(laptop_id, battery_percent)
+
+                logged = self.data_logger.add_entry(laptop_id, battery_percent, elapsed, status['charging'])
+                if self.data_logger.backup_manager.should_backup(interval_minutes=self.backup_interval):
+                    self.data_logger.backup_manager.create_backup()
+
+                if logged:
+                    runtime_str = self.results_viewer.format_time(elapsed)
+                    bar = _battery_bar(battery_percent, 20)
+                    state = '⏸ PAUSED' if charging_monitor.is_paused else '▶ RUNNING'
+                    rate_str = f"{rate:.1f}%/h" if rate > 0 else " -- "
+                    if eta_mins > 0 and eta_mins < 1440:
+                        eh, em = int(eta_mins // 60), int(eta_mins % 60)
+                        eta_str = f"{eh}h{em:02d}m"
+                    else:
+                        eta_str = " -- "
+                    print(f"  {runtime_str:>8s}  {battery_percent:5.1f}% {bar}  {rate_str:>7s}  {eta_str:>10s}  {state}")
+
+                if charge_state == 'grace':
+                    gr = charging_monitor.grace_remaining
+                    if 0 < gr <= 10:
+                        print(f"  ⚡ Charger detected! Pausing in {gr}s unless disconnected...")
+
+                if battery_percent <= 0:
+                    print("\n  ✓ Battery depleted. Test complete.")
+                    break
+                if max_duration and elapsed >= max_duration * 60:
+                    rf, _ = discharge.update(battery_percent, elapsed)
+                    est_total = battery_percent / rf * 3600 if rf > 0 else 0
+                    print(f"\n  ✓ Quick test complete. Est full runtime: {est_total/3600:.1f}h")
+                    break
+
+                last_battery_percent = battery_percent
+                time.sleep(self.config.get('log_interval_seconds', 10))
+        except KeyboardInterrupt:
+            print("\n\n  ⚠  Test interrupted by user")
+        finally:
+            final_status = low_battery_handler.determine_test_status(last_battery_percent)
+            self.data_logger.finalize_test_run(laptop_id, final_status, last_battery_percent)
+
+            print("\n  Restoring power settings...", end=' ')
+            self.power_manager.restore_power_plan()
+            print("OK")
+
+            summary = discharge.get_summary()
+            print(f"\n  Discharge Statistics:")
+            print(f"    Avg rate:  {summary['avg_rate_percent_per_hour']}%/hr")
+            print(f"    Peak rate: {summary['short_term_rate_percent_per_hour']}%/hr")
+
+            if run_id:
+                print("\n  Generating report...", end=' ')
+                try:
+                    report_path = self.report_generator.generate_report(laptop_id, run_id)
+                    print(f"OK\n  {report_path}")
+                    if self.config.get('auto_open_report', False):
+                        self.report_generator._open_report(report_path)
+                except Exception as e:
+                    print(f"skipped ({e})")
+
+            if self.csv_export and run_id:
+                try:
+                    self.results_viewer.export_csv(laptop_id, run_id)
+                except Exception as e:
+                    print(f"  CSV export: skipped ({e})")
+
+            self.config.save()
+            print("\n" + "=" * W)
+            print("  TEST COMPLETE")
+            print("=" * W)
+            self.results_viewer.display_laptop_results(laptop_id, laptop_id)
         
         print("\n" + "=" * 70)
         print("STARTING BATTERY TEST")
@@ -280,203 +465,6 @@ class BatteryTester:
             # New test run
             run_id = self.data_logger.create_test_run(laptop_id, metadata, battery_info)
             self.test_start_time = datetime.now()
-            print(f"Created test run: {run_id}")
-        
-        # Wait for battery power
-        print("\nWaiting for AC power to be disconnected...")
-        if not self.battery_monitor.wait_for_battery_power():
-            return False
-        
-        # Log test start event
-        status = self.battery_monitor.get_battery_status()
-        self.data_logger.add_power_event(
-            laptop_id, 'test_started', False, status['percentage']
-        )
-        
-        # Initialize monitoring with configured threshold
-        charging_monitor = ChargingMonitor()
-        low_battery_handler = LowBatteryHandler(low_battery_threshold=self.low_battery_threshold)
-        discharge = DischargeAnalyzer()
-        power_events = PowerEventLogger()
-
-        # Update backup manager interval
-        self.data_logger.backup_manager.keep_backups = 5  # Keep last 5 backups
-
-        # Apply preset if selected
-        if self.selected_preset and self.selected_preset != 'full_discharge':
-            preset = PRESETS[self.selected_preset]
-            max_duration = preset.get('max_duration_minutes')
-            log_debug(f"Preset '{self.selected_preset}' applied: {preset}", 'info')
-        else:
-            max_duration = None
-
-        # Track pause time for charging events
-        pause_start_time = None
-        total_pause_time = 0
-
-        # Start test loop
-        header = f"TEST IN PROGRESS"
-        if self.selected_preset:
-            header += f" [{PRESETS[self.selected_preset]['name']}]"
-        print("\n" + "=" * 70)
-        print(header)
-        print("=" * 70)
-        print("Press Ctrl+C to stop test\n")
-
-        self.running = True
-        last_battery_percent = None
-
-        try:
-            while self.running:
-                # Get current status
-                status = self.battery_monitor.get_battery_status()
-                battery_percent = status['percentage']
-
-                if battery_percent is None:
-                    print("Warning: Battery status unavailable")
-                    time.sleep(10)
-                    continue
-
-                # Handle charging pause/resume
-                if charging_monitor.is_paused:
-                    if pause_start_time is None:
-                        pause_start_time = datetime.now()
-                else:
-                    if pause_start_time is not None:
-                        pause_duration = (datetime.now() - pause_start_time).total_seconds()
-                        total_pause_time += pause_duration
-                        pause_start_time = None
-
-                # Calculate elapsed time (excluding pause time)
-                if resume_data:
-                    base_elapsed = resume_data['last_elapsed_seconds']
-                    current_time = (datetime.now() - resume_data['start_time']).total_seconds()
-                else:
-                    base_elapsed = 0
-                    current_time = (datetime.now() - self.test_start_time).total_seconds()
-
-                elapsed = base_elapsed + current_time - total_pause_time
-                if pause_start_time is not None:
-                    elapsed -= (datetime.now() - pause_start_time).total_seconds()
-
-                # Check for charging
-                if charging_monitor.check_charging_status():
-                    if not charging_monitor.is_paused:
-                        event = charging_monitor.handle_charging_detected()
-                        if event:
-                            self.data_logger.add_power_event(
-                                laptop_id, 'charging_detected', True, battery_percent
-                            )
-                else:
-                    if charging_monitor.is_paused:
-                        event = charging_monitor.handle_charging_stopped()
-                        if event:
-                            self.data_logger.add_power_event(
-                                laptop_id, 'charging_stopped', False, battery_percent
-                            )
-
-                # Poll system power events
-                sys_event = power_events.poll()
-                if sys_event:
-                    self.data_logger.add_power_event(
-                        laptop_id, 'system_' + sys_event['event'],
-                        sys_event['event'] == 'ac_connected',
-                        sys_event.get('battery_percent')
-                    )
-
-                # Calculate discharge rate and ETA
-                rate, eta_mins = discharge.update(battery_percent, elapsed)
-
-                # Check low battery
-                is_low, low_event = low_battery_handler.check_low_battery(battery_percent)
-                if is_low and low_event:
-                    self.data_logger.add_low_battery_event(laptop_id, battery_percent)
-
-                # Log entry (if triggered)
-                logged = self.data_logger.add_entry(
-                    laptop_id, battery_percent, elapsed, status['charging']
-                )
-
-                # Periodic backup
-                if self.data_logger.backup_manager.should_backup(interval_minutes=self.backup_interval):
-                    self.data_logger.backup_manager.create_backup()
-
-                if logged:
-                    runtime_str = self.results_viewer.format_time(elapsed)
-                    status_line = (f"[{runtime_str}] Battery: {battery_percent:.1f}% | "
-                                   f"Elapsed: {elapsed/3600:.2f}h")
-                    if rate > 0:
-                        status_line += f" | Rate: {rate:.1f}%/h"
-                        if eta_mins > 0 and eta_mins < 1440:
-                            eta_h = int(eta_mins // 60)
-                            eta_m = int(eta_mins % 60)
-                            status_line += f" | Est: {eta_h}h{eta_m}m"
-                    print(status_line)
-
-                # Check if battery is depleted
-                if battery_percent <= 0:
-                    print("\n✓ Battery depleted. Test complete.")
-                    break
-
-                # Check preset max duration
-                if max_duration and elapsed >= max_duration * 60:
-                    rate_final, _ = discharge.update(battery_percent, elapsed)
-                    est_total = battery_percent / rate_final * 3600 if rate_final > 0 else 0
-                    print(f"\n✓ Quick test complete after {max_duration} min. "
-                          f"Estimated full runtime: {est_total/3600:.1f}h")
-                    break
-
-                last_battery_percent = battery_percent
-                time.sleep(self.config.get('log_interval_seconds', 10))
-        
-        except KeyboardInterrupt:
-            print("\n\n⚠️  Test interrupted by user")
-        
-        finally:
-            # Finalize test
-            final_status = low_battery_handler.determine_test_status(last_battery_percent)
-            
-            self.data_logger.finalize_test_run(laptop_id, final_status, last_battery_percent)
-            
-            # Restore power settings
-            print("\nRestoring power settings...")
-            self.power_manager.restore_power_plan()
-            
-            # Show discharge stats
-            print("\nDischarge Statistics:")
-            print("-" * 40)
-            summary = discharge.get_summary()
-            print(f"  Avg rate: {summary['avg_rate_percent_per_hour']}%/hr")
-            print(f"  Final rate: {summary['short_term_rate_percent_per_hour']}%/hr")
-
-            # Generate report
-            print("\nGenerating report...")
-            if run_id:
-                try:
-                    report_path = self.report_generator.generate_report(laptop_id, run_id)
-                    print(f"✓ Report generated: {report_path}")
-                    if self.config.get('auto_open_report', False):
-                        self.report_generator._open_report(report_path)
-                except Exception as e:
-                    print(f"Warning: Could not generate report: {e}")
-
-            # CSV export if requested
-            if self.csv_export:
-                try:
-                    self.results_viewer.export_csv(laptop_id, run_id)
-                except Exception as e:
-                    print(f"Warning: Could not export CSV: {e}")
-
-            # Save config for next run
-            self.config.save()
-
-            print("\n" + "=" * 70)
-            print("TEST COMPLETE")
-            print("=" * 70)
-
-            # Display results
-            self.results_viewer.display_laptop_results(laptop_id, laptop_id)
-    
     def handle_list_command(self):
         """Handle --list command"""
         self.results_viewer.display_comparison()
@@ -526,7 +514,7 @@ class BatteryTester:
         
         self.results_viewer.display_laptop_results(laptop_id, laptop_id)
     
-    def _run_start_test_interactive(self):
+    def _run_start_test_interactive(self, auto_start=False):
         """Interactive start test flow"""
         print("\n" + "=" * 70)
         print("START NEW BATTERY TEST")
@@ -550,7 +538,7 @@ class BatteryTester:
             print("\n⚠️  Incomplete test found!")
             if self.test_resumer.prompt_resume(incomplete_test):
                 resume_data = self.test_resumer.resume_test(laptop_id)
-                self.start_test(laptop_id, resume_data)
+                self.start_test(laptop_id, resume_data, auto_start=auto_start)
                 return
             else:
                 self.test_resumer.archive_incomplete_test(laptop_id)
@@ -569,7 +557,7 @@ class BatteryTester:
             return
         
         # Start test
-        self.start_test(laptop_id, None)
+        self.start_test(laptop_id, None, auto_start=auto_start)
     
     def _run_resume_interactive(self):
         """Interactive resume test flow"""
@@ -765,6 +753,8 @@ Examples:
                           help='Low battery warning threshold (default: 10%%)')
         parser.add_argument('--backup-interval', type=int, metavar='MINUTES', default=5,
                           help='Backup interval in minutes (default: 5)')
+        parser.add_argument('--auto-start', action='store_true',
+                          help='Auto-start test when AC power is disconnected')
         parser.add_argument('--skip-validation', action='store_true',
                           help='Skip pre-test validation (use with caution)')
         parser.add_argument('--sort', choices=['runtime', 'discharge_rate', 'battery_health'],
@@ -930,7 +920,7 @@ Examples:
             log_debug(f"Starting test for laptop: {laptop_id}", 'info')
             if resume_data:
                 log_debug(f"Resuming test with data: {resume_data}", 'info')
-            self.start_test(laptop_id, resume_data)
+            self.start_test(laptop_id, resume_data, auto_start=args.auto_start)
         except KeyboardInterrupt:
             log_debug("Test interrupted by user (KeyboardInterrupt)", 'warning')
             print("\n\n⚠️  Test interrupted by user")
@@ -939,6 +929,12 @@ Examples:
             log_debug("Exception traceback:", 'exception')
             print(f"\n❌ Error during test: {e}")
             traceback.print_exc()
+
+
+def _battery_bar(percent, width=20):
+    """Terminal battery bar: ████░░░░░░"""
+    filled = max(0, min(width, int(round(percent / 100 * width))))
+    return '█' * filled + '░' * (width - filled)
 
 
 def pause_before_exit():
@@ -973,14 +969,15 @@ def show_main_menu():
     print("=" * 70)
     print("\nMain Menu:")
     print("  1. Start New Battery Test")
-    print("  2. Quick Test (30 min estimate)")
-    print("  3. Battery Calibration")
-    print("  4. Resume Interrupted Test")
-    print("  5. View Test Results")
-    print("  6. Generate Report")
-    print("  7. Run Validation Checks")
-    print("  8. View All Laptops Summary")
-    print("  9. Compare All Laptops")
+    print("  2. Auto-Start (wait for battery power)")
+    print("  3. Quick Test (30 min estimate)")
+    print("  4. Battery Calibration")
+    print("  5. Resume Interrupted Test")
+    print("  6. View Test Results")
+    print("  7. Generate Report")
+    print("  8. Run Validation Checks")
+    print("  9. View All Laptops Summary")
+    print("  0. Compare All Laptops")
     print("  C. Show Config")
     if DEBUG_MODE:
         print("  D. Disable Debug Mode")
@@ -997,20 +994,22 @@ def show_main_menu():
             if choice == '1':
                 return 'start_test'
             elif choice == '2':
-                return 'quick_test'
+                return 'auto_start'
             elif choice == '3':
-                return 'calibration'
+                return 'quick_test'
             elif choice == '4':
-                return 'resume'
+                return 'calibration'
             elif choice == '5':
-                return 'view_results'
+                return 'resume'
             elif choice == '6':
-                return 'report'
+                return 'view_results'
             elif choice == '7':
-                return 'validate'
+                return 'report'
             elif choice == '8':
-                return 'list'
+                return 'validate'
             elif choice == '9':
+                return 'list'
+            elif choice == '0':
                 return 'compare'
             elif choice == 'c':
                 return 'config'
@@ -1124,7 +1123,17 @@ def main():
                     log_debug("User selected: Start New Battery Test", 'info')
                     tester.selected_preset = None
                     try:
-                        tester._run_start_test_interactive()
+                        tester._run_start_test_interactive(auto_start=False)
+                    except KeyboardInterrupt:
+                        print("\n\nOperation cancelled.")
+                    except Exception as e:
+                        print(f"\n❌ Error: {e}")
+                        traceback.print_exc()
+                elif choice == 'auto_start':
+                    log_debug("User selected: Auto-Start", 'info')
+                    tester.selected_preset = None
+                    try:
+                        tester._run_start_test_interactive(auto_start=True)
                     except KeyboardInterrupt:
                         print("\n\nOperation cancelled.")
                     except Exception as e:

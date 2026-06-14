@@ -1,1 +1,10 @@
 __pycache__/
+build/
+dist/
+logs/
+backups/
+battery_tester.exe
+battery_tester.spec
+battery_test_data*.json
+battery_tester.json
+*.jpg

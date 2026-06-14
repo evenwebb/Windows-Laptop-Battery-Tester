@@ -36,23 +36,26 @@ class TestConfig:
             for k, v in loaded.items():
                 if k in DEFAULTS:
                     self.data[k] = v
-        except Exception:
+        except (json.JSONDecodeError, OSError, IOError):
             pass
 
     def save(self):
         try:
             with open(self.config_file, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, indent=2)
-        except Exception as e:
+        except (OSError, IOError) as e:
             print(f"Warning: Could not save config: {e}")
 
     def get(self, key, default=None):
         return self.data.get(key, default)
 
     def set(self, key, value):
-        if key in DEFAULTS:
-            self.data[key] = value
-            self.save()
+        if key not in DEFAULTS:
+            print(f"Warning: Unknown config key '{key}'. Available: {', '.join(DEFAULTS.keys())}")
+            return False
+        self.data[key] = value
+        self.save()
+        return True
 
     def show(self):
         print("\nConfiguration:")

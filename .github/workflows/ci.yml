@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install ruff
+
+      - name: Lint
+        run: ruff check . --select E,F --ignore E501
+
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Verify syntax
+        run: |
+          for f in *.py; do
+            python -c "import ast; ast.parse(open('$f').read())" || exit 1
+          done
+          echo "All files pass syntax check"
+
+  imports:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install psutil Pillow
+
+      - name: Verify cross-platform imports
+        run: |
+          python -c "
+          import backup_manager, test_config, results_viewer
+          import discharge_analyzer, metadata_logger
+          print('All cross-platform imports OK')
+          "

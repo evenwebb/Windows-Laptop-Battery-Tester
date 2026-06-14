@@ -122,7 +122,9 @@ class DataLogger:
         if not test_run:
             return False
         
-        # Check if we should log (every 1 minute OR every 10% drop)
+        if battery_percent is None:
+            return False
+
         last_time = self._last_log_time.get(laptop_id)
         last_pct = self._last_log_percentage.get(laptop_id)
         should_log = False

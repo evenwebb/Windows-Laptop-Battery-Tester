@@ -26,7 +26,7 @@ battery_tester.exe --debug --validate
 ### Method 2: Interactive Menu
 
 1. Run the application without arguments: `battery_tester.exe`
-2. Select option **8. Enable Debug Mode** from the menu
+2. Select option **D. Enable Debug Mode** from the menu
 3. Debug mode will be enabled for the current session
 
 ## Log File Location
@@ -150,7 +150,7 @@ When reporting issues:
 
 Debug mode is automatically disabled when the application exits. To disable during a session:
 
-- Exit the application (option 8 or 9 in menu)
+- Exit the application (choose X in menu)
 - Restart without the `--debug` flag
 
 Note: Once debug mode is enabled via menu, it stays enabled for that session until the application exits.

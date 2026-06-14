@@ -232,22 +232,23 @@ class ReportGenerator:
     def generate_report_and_open(self, laptop_id, run_id=None, output_path=None, auto_open=True):
         """Generate report and optionally open it"""
         report_path = self.generate_report(laptop_id, run_id, output_path)
-        
         if auto_open:
-            try:
-                import os
-                import platform
-                if platform.system() == 'Windows':
-                    os.startfile(report_path)
-                elif platform.system() == 'Darwin':  # macOS
-                    os.system(f'open "{report_path}"')
-                else:  # Linux
-                    os.system(f'xdg-open "{report_path}"')
-            except Exception as e:
-                print(f"Warning: Could not open report: {e}")
-        
+            self._open_report(report_path)
         return report_path
-    
+
+    def _open_report(self, report_path):
+        """Open a generated report file with the OS default viewer."""
+        import platform
+        try:
+            if platform.system() == 'Windows':
+                os.startfile(report_path)
+            elif platform.system() == 'Darwin':
+                os.system(f'open "{report_path}"')
+            else:
+                os.system(f'xdg-open "{report_path}"')
+        except Exception as e:
+            print(f"Warning: Could not open report: {e}")
+
     def generate_comparison_report(self, output_path=None):
         """Generate comparison report for all laptops"""
         laptops = self.data_logger.data['laptops']

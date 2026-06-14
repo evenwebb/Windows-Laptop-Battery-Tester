@@ -117,9 +117,8 @@ class ResultsViewer:
             # Milestones
             if stats['milestones']:
                 print("\n  Battery Milestones:")
-                for pct in [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0]:
-                    if pct in stats['milestones']:
-                        print(f"    {pct:3d}%: {stats['milestones'][pct]['formatted_time']}")
+                for pct in sorted(stats['milestones'], reverse=True):
+                    print(f"    {pct:3d}%: {stats['milestones'][pct]['formatted_time']}")
     
     def display_comparison(self, sort_by='runtime'):
         """Display comparison of all laptops"""
@@ -165,7 +164,12 @@ class ResultsViewer:
         elif sort_by == 'discharge_rate':
             laptop_stats.sort(key=lambda x: x['stats']['discharge_rate'])
         elif sort_by == 'battery_health':
-            laptop_stats.sort(key=lambda x: x['test_run'].get('battery_info', {}).get('health_percent') or 0, reverse=True)
+            laptop_stats.sort(
+                key=lambda x: x['test_run'].get('battery_info', {}).get('health_percent')
+                if x['test_run'].get('battery_info', {}).get('health_percent') is not None
+                else float('inf'),
+                reverse=False,
+            )
         
         # Display table
         print(f"\n{'Laptop ID':<20} {'Runtime':<12} {'Discharge Rate':<15} {'Status':<20} {'Health':<10}")

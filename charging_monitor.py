@@ -121,14 +121,15 @@ if __name__ == '__main__':
     print("Monitoring for charging events...")
     print("Press Ctrl+C to stop")
     
+    import threading
+    stop_event = threading.Event()
+    thread = threading.Thread(target=monitor.monitor, args=(stop_event,))
+    thread.start()
     try:
-        import threading
-        stop_event = threading.Event()
-        thread = threading.Thread(target=monitor.monitor, args=(stop_event,))
-        thread.start()
         thread.join()
     except KeyboardInterrupt:
         stop_event.set()
+        thread.join(timeout=2)
         print("\n\nCharging Events:")
         for event in monitor.charging_events:
             print(event)

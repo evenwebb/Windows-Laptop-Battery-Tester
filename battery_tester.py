@@ -162,93 +162,75 @@ class BatteryTester:
     def run_validation(self, laptop_id, require_100_percent=True, interactive=True):
         """Run pre-test validation"""
         log_debug(f"Running validation for laptop: {laptop_id}", 'info')
-        log_debug(f"Require 100%: {require_100_percent}, Interactive: {interactive}", 'debug')
-        
+
         print("\n" + "=" * 70)
         print("PRE-TEST VALIDATION")
         print("=" * 70)
-        
+
         is_valid, errors, warnings = self.test_validator.validate_all(
             laptop_id, self.data_logger, require_100_percent
         )
-        
+
         log_debug(f"Validation result - Valid: {is_valid}, Errors: {len(errors)}, Warnings: {len(warnings)}", 'info')
-        if errors:
-            log_debug(f"Validation errors: {errors}", 'error')
-        if warnings:
-            log_debug(f"Validation warnings: {warnings}", 'warning')
-        
         self.test_validator.display_results()
-        
+
         if not is_valid:
             log_debug("Validation failed", 'error')
             if interactive:
-                print("\n" + "=" * 70)
-                print("VALIDATION FAILED")
-                print("=" * 70)
-                print("\nOptions:")
-                print("  1. Continue anyway (not recommended)")
-                print("  2. Exit and fix issues")
-                
-                while True:
-                    try:
-                        choice = input("\nSelect option (1-2): ").strip()
-                        log_debug(f"User selected option: {choice}", 'debug')
-                        if choice == '1':
-                            print("\n⚠️  Warning: Continuing with validation errors may affect test accuracy.")
-                            confirm = input("Are you sure? (yes/no): ").strip().lower()
-                            log_debug(f"User confirmation: {confirm}", 'debug')
-                            if confirm == 'yes':
-                                log_debug("User chose to continue despite validation errors", 'warning')
-                                return True
-                            else:
-                                log_debug("User cancelled after seeing warning", 'info')
-                                return False
-                        elif choice == '2':
-                            log_debug("User chose to exit and fix issues", 'info')
-                            return False
-                        else:
-                            print("Invalid choice. Please enter 1 or 2.")
-                    except (KeyboardInterrupt, EOFError):
-                        log_debug("User interrupted validation prompt", 'warning')
-                        return False
-            log_debug("Validation failed, returning False", 'error')
+                ok = self._prompt_yes_no_choice(
+                    "VALIDATION FAILED",
+                    [("Continue anyway (not recommended)", True),
+                     ("Exit and fix issues", False)],
+                    confirm_on=0,
+                )
+                if ok:
+                    return True
+                return False
             return False
-        
-        # Ask about warnings
+
         if warnings:
             log_debug("Validation has warnings, prompting user", 'info')
             if interactive:
-                print("\n" + "=" * 70)
-                print("VALIDATION WARNINGS")
-                print("=" * 70)
-                print("\nOptions:")
-                print("  1. Continue despite warnings")
-                print("  2. Exit and fix warnings")
-                
-                while True:
-                    try:
-                        choice = input("\nSelect option (1-2): ").strip()
-                        log_debug(f"User selected option: {choice}", 'debug')
-                        if choice == '1':
-                            log_debug("User chose to continue despite warnings", 'info')
-                            return True
-                        elif choice == '2':
-                            log_debug("User chose to exit and fix warnings", 'info')
-                            return False
-                        else:
-                            print("Invalid choice. Please enter 1 or 2.")
-                    except (KeyboardInterrupt, EOFError):
-                        log_debug("User interrupted warning prompt", 'warning')
-                        return False
+                ok = self._prompt_yes_no_choice(
+                    "VALIDATION WARNINGS",
+                    [("Continue despite warnings", True),
+                     ("Exit and fix warnings", False)],
+                )
+                if ok:
+                    return True
+                return False
             else:
                 response = input("\nContinue despite warnings? (y/n): ").strip().lower()
-                log_debug(f"User response: {response}", 'debug')
                 if response != 'y':
                     return False
-        
+
         log_debug("Validation passed", 'info')
         return True
+
+    def _prompt_yes_no_choice(self, title, options, confirm_on=None):
+        """Show a numbered choice prompt. Returns True/False or None if interrupted."""
+        print("\n" + "=" * 70)
+        print(title)
+        print("=" * 70)
+        print()
+        for i, (label, _) in enumerate(options, 1):
+            print(f"  {i}. {label}")
+        while True:
+            try:
+                choice = input("\nSelect option: ").strip()
+                log_debug(f"User selected: {choice}", 'debug')
+                idx = int(choice) - 1
+                if 0 <= idx < len(options):
+                    if confirm_on is not None and idx == confirm_on:
+                        conf = input(f"\n⚠️  {options[idx][0]}. Are you sure? (yes/no): ").strip().lower()
+                        if conf != 'yes':
+                            return False
+                    return options[idx][1]
+                print(f"Invalid choice. Please enter 1-{len(options)}.")
+            except ValueError:
+                print(f"Invalid input. Please enter 1-{len(options)}.")
+            except (KeyboardInterrupt, EOFError):
+                return False
     
     def start_test(self, laptop_id, resume_data=None):
         """Start battery test"""
@@ -285,7 +267,7 @@ class BatteryTester:
         # Get battery info
         battery_info = get_battery_health()
         
-        # Create test run
+        run_id = None
         if resume_data:
             # Resume existing test
             run_id = resume_data['run_id']
@@ -445,7 +427,7 @@ class BatteryTester:
                     break
 
                 last_battery_percent = battery_percent
-                time.sleep(10)  # Poll every 10 seconds
+                time.sleep(self.config.get('log_interval_seconds', 10))
         
         except KeyboardInterrupt:
             print("\n\n⚠️  Test interrupted by user")
@@ -469,13 +451,14 @@ class BatteryTester:
 
             # Generate report
             print("\nGenerating report...")
-            try:
-                report_path = self.report_generator.generate_report(laptop_id, run_id)
-                print(f"✓ Report generated: {report_path}")
-                if self.config.get('auto_open_report', False):
-                    self.report_generator._open_report(report_path)
-            except Exception as e:
-                print(f"Warning: Could not generate report: {e}")
+            if run_id:
+                try:
+                    report_path = self.report_generator.generate_report(laptop_id, run_id)
+                    print(f"✓ Report generated: {report_path}")
+                    if self.config.get('auto_open_report', False):
+                        self.report_generator._open_report(report_path)
+                except Exception as e:
+                    print(f"Warning: Could not generate report: {e}")
 
             # CSV export if requested
             if self.csv_export:
@@ -508,8 +491,7 @@ class BatteryTester:
             report_path = self.report_generator.generate_comparison_report()
             print(f"✓ Comparison report generated: {report_path}")
             if auto_open:
-                if auto_open:
-                    self.report_generator._open_report(report_path)
+                self.report_generator._open_report(report_path)
         except Exception as e:
             print(f"Error generating comparison report: {e}")
     

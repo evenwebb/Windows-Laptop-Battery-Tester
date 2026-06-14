@@ -57,9 +57,10 @@ class BatteryMonitor:
                     if battery.EstimatedChargeRemaining is not None:
                         status['percentage'] = battery.EstimatedChargeRemaining
                     
-                    # Get charging status
-                    # BatteryStatus: 2 = Charging, 1 = Discharging, 3 = AC Power
-                    if battery.BatteryStatus == 2:
+                    # BatteryStatus: 1=Discharging, 2=Charging, 3=AC/Full, 6=Charging low, 7=Charging critical
+                    charging_states = (2, 6, 7)
+                    ac_states = (2, 3, 6, 7)
+                    if battery.BatteryStatus in charging_states:
                         status['charging'] = True
                     elif battery.BatteryStatus == 1:
                         status['charging'] = False
@@ -67,7 +68,7 @@ class BatteryMonitor:
                     # Check AC power via Win32_Battery
                     # When AC is connected, battery may still show as discharging briefly
                     # So we check both BatteryStatus and power_plugged
-                    if battery.BatteryStatus == 3 or battery.BatteryStatus == 2:
+                    if battery.BatteryStatus in ac_states:
                         status['ac_connected'] = True
                     
                     # Get capacity info

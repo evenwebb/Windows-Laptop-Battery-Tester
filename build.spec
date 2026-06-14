@@ -9,12 +9,9 @@ psutil_datas, psutil_binaries, psutil_hiddenimports = hooks.collect_all('psutil'
 # Collect PIL/Pillow data files (fonts, etc.)
 pil_datas, pil_binaries, pil_hiddenimports = hooks.collect_all('PIL')
 
-# Collect matplotlib data files and hidden imports
-matplotlib_datas, matplotlib_binaries, matplotlib_hiddenimports = hooks.collect_all('matplotlib')
-
 # Combine all binaries and datas
-all_binaries = psutil_binaries + pil_binaries + matplotlib_binaries
-all_datas = psutil_datas + pil_datas + matplotlib_datas
+all_binaries = psutil_binaries + pil_binaries
+all_datas = psutil_datas + pil_datas
 
 a = Analysis(
     ['battery_tester.py'],
@@ -38,11 +35,6 @@ a = Analysis(
         'win32com.shell',
         'pythoncom',
         'pywintypes',
-        'matplotlib',
-        'matplotlib.backends',
-        'matplotlib.backends.backend_agg',
-        'matplotlib.figure',
-        'matplotlib.pyplot',
         'hardware_info',
         'battery_monitor',
         'battery_health',
@@ -59,7 +51,7 @@ a = Analysis(
         'test_config',
         'discharge_analyzer',
         'power_event_logger',
-    ] + psutil_hiddenimports + pil_hiddenimports + matplotlib_hiddenimports,
+    ] + psutil_hiddenimports + pil_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

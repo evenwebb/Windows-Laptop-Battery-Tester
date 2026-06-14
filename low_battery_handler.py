@@ -46,7 +46,10 @@ class LowBatteryHandler:
         """
         if last_battery_percent is None:
             return "hard_shutdown"
-        
+
+        if last_battery_percent < 0:
+            return "error"
+
         if last_battery_percent <= 0:
             return "completed"
         elif last_battery_percent <= self.low_battery_threshold:

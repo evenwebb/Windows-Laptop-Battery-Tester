@@ -74,7 +74,7 @@ def collect_test_metadata(original_power_plan=None, active_power_plan=None, scre
         'os_build': platform.version().split('.')[-1] if '.' in platform.version() else platform.version(),
         'original_power_plan': orig_plan,
         'active_power_plan': active_power_plan or 'High Performance',
-        'screen_brightness': screen_brightness or (pm.get_screen_brightness() if pm is not None else None),
+        'screen_brightness': screen_brightness if screen_brightness is not None else (pm.get_screen_brightness() if pm is not None else None),
         'wifi_enabled': check_wifi_status(),
         'script_version': '1.0.0',
         'notes': notes or '',

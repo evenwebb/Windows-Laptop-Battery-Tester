@@ -67,37 +67,37 @@ def get_hardware_info():
 
 def get_battery_info():
     """
-    Get battery information via WMI
-    Returns dict with battery details or None if unavailable
+    Get battery information via WMI.
+    Delegates to battery_health module which has better CycleCount handling.
+    Returns dict with battery details or None if unavailable.
     """
+    try:
+        from battery_health import get_battery_health
+        return get_battery_health()
+    except ImportError:
+        pass
+
+    # Fallback if battery_health module unavailable
     if not WMI_AVAILABLE or platform.system() != 'Windows':
         return None
-    
+
     try:
         c = wmi.WMI()
         batteries = c.Win32_Battery()
-        
         if not batteries:
             return None
-        
         battery = batteries[0]
-        battery_info = {
-            'design_capacity_mwh': battery.DesignCapacity if battery.DesignCapacity else None,
-            'full_charge_capacity_mwh': battery.FullChargeCapacity if battery.FullChargeCapacity else None,
+        info = {
+            'design_capacity_mwh': battery.DesignCapacity or None,
+            'full_charge_capacity_mwh': battery.FullChargeCapacity or None,
             'cycles': battery.CycleCount if hasattr(battery, 'CycleCount') and battery.CycleCount is not None else None,
         }
-        
-        # Calculate health percentage
-        if battery_info['design_capacity_mwh'] and battery_info['full_charge_capacity_mwh']:
-            battery_info['health_percent'] = round(
-                (battery_info['full_charge_capacity_mwh'] / battery_info['design_capacity_mwh']) * 100, 2
-            )
+        if info['design_capacity_mwh'] and info['full_charge_capacity_mwh']:
+            info['health_percent'] = round((info['full_charge_capacity_mwh'] / info['design_capacity_mwh']) * 100, 2)
         else:
-            battery_info['health_percent'] = None
-        
-        return battery_info
-    except Exception as e:
-        print(f"Warning: Could not retrieve battery info: {e}")
+            info['health_percent'] = None
+        return info
+    except Exception:
         return None
 
 

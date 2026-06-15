@@ -22,6 +22,13 @@ A portable Python application that monitors laptop battery life, logs data perio
 - **Low Battery Handling**: Detect and handle low battery warnings and system shutdowns
 - **Data Backup**: Automatic periodic backups and recovery from corruption
 - **Auto-Report Generation**: Automatically generate report when test completes
+- **Live Discharge Rate & ETA**: Real-time discharge rate (%/hr) and estimated time remaining during tests
+- **Terminal UI**: Battery bar, columned status display (Runtime | Batt% | Rate | ETA | Status)
+- **Auto-Start Mode**: Automatically begins the test when AC power is disconnected
+- **Charging Grace Period**: 30-second grace period prevents brief charger reconnects from pausing the test
+- **CSV Export**: Export test results to CSV with `--export-csv`
+- **Config File**: Persistent JSON config file with test presets (Full Discharge, Quick Test, Calibration, Idle Test)
+- **Test Presets**: Quick Test, Battery Calibration, and Idle Test modes via `--preset`
 
 ## Requirements
 
@@ -100,6 +107,9 @@ The script will:
 - `--backup-interval MINUTES`: Set backup interval in minutes (default: 5)
 - `--skip-validation`: Skip pre-test validation (use with caution)
 - `--sort FIELD`: Sort comparison by field (runtime/discharge_rate/battery_health)
+- `--preset NAME`: Use a test preset (full_discharge, quick_test, battery_calibration, idle_test)
+- `--config FILE`: Load test configuration from JSON file (default: battery_tester.json)
+- `--export-csv FILE`: Export test results to CSV file
 
 ### Quick Examples
 
@@ -124,6 +134,15 @@ battery_tester.exe --resume
 
 # Validate system before starting
 battery_tester.exe --validate
+
+# Use a preset for quick testing
+battery_tester.exe --preset quick_test
+
+# Export results to CSV
+battery_tester.exe --export-csv results.csv
+
+# Use custom config file
+battery_tester.exe --config my_test.json
 ```
 
 ### Complete CLI Documentation
@@ -135,13 +154,15 @@ For detailed command reference, examples, and usage patterns, see **[CLI_USAGE.m
 1. **Laptop Identification**: Generates unique ID from serial number, model, and CPU
 2. **Pre-Test Validation**: Checks battery is 100%, AC disconnected, battery health OK
 3. **Power Management**: Sets power plan to High Performance, prevents sleep/hibernate
-4. **Battery Monitoring**: Polls every 10 seconds, logs every 1 minute or 10% drop
-5. **Charging Detection**: Pauses timer and logs event if charger is plugged in during test
-6. **Low Battery Handling**: Detects and logs low battery warnings (configurable threshold)
-7. **Data Persistence**: Saves to JSON with configurable periodic backups (default: 5 min)
-8. **Report Generation**: Automatically creates JPEG report when test completes
-9. **Resume Capability**: Can resume interrupted tests from last logged point
-10. **Multi-Laptop Tracking**: Stores and compares results across multiple laptops
+4. **Auto-Start**: Optionally waits for AC disconnect and automatically begins the test
+5. **Battery Monitoring**: Polls every 10 seconds, logs every 1 minute or 10% drop
+6. **Live Display**: Terminal battery bar with discharge rate (%/hr) and estimated time remaining
+7. **Charging Detection**: 30-second grace period prevents brief reconnects from pausing the test
+8. **Low Battery Handling**: Detects and logs low battery warnings (configurable threshold)
+9. **Data Persistence**: Saves to JSON with configurable periodic backups (default: 5 min); CSV export available
+10. **Report Generation**: Automatically creates JPEG report when test completes
+11. **Resume Capability**: Can resume interrupted tests from last logged point
+12. **Multi-Laptop Tracking**: Stores and compares results across multiple laptops
 
 ## Data Storage
 
